@@ -1,0 +1,72 @@
+#!/bin/sh
+#PBS -N xxx
+#PBS -l walltime=168:0:0
+#PBS -j oe
+#PBS -l nodes=1:ppn=24
+#PBS -q batch
+
+cd $PBS_O_WORKDIR
+NP=`cat $PBS_NODEFILE | wc -l`
+
+#alter variables & nodes
+workdir=$PWD/..
+poscar=POSCAR-origin
+dir=$(basename `pwd`)
+
+MPIRUN=mpirun
+EXE=vasp_std
+COM="$MPIRUN -np $NP -hostfile $PBS_NODEFILE $EXE"
+
+echo ============0.I am in $PWD============
+
+mv comment-$dir		comment-$dir-before
+mv log.$dir         log.$dir.before		
+
+#====phonopy====
+	phonopy -d --dim="1 2 1" -c $poscar
+		
+	echo  SPOSCAR				>> log.$dir
+	mkdir SPOSCAR-scf
+	cd	  SPOSCAR-scf
+	echo ============2.0 I am in $PWD ===================
+	rm WAVECAR CHG* OUTCAR OSZICAR POSCAR
+	cp ../INCAR-SPOSCAR		INCAR
+	cp ../SPOSCAR			POSCAR
+	cp ../KPOINTS			KPOINTS
+	cp ../POTCAR			POTCAR
+
+	$COM >> ../log.$dir
+
+	gene-comment-file.sh	SPOSCAR-scf
+	cat comment-SPOSCAR-scf >>  ../comment-$dir
+
+	cd /$workdir/$dir
+	for j in $(ls POSCAR-[0-9]*) ; do
+		echo POSCAR-0\*\*  = $j >> $workdir/$dir/log.$dir
+		mkdir $workdir/$dir/$j-scf
+		cd $workdir/$dir/$j-scf
+		echo ============2.I am IN $PWD ============
+			
+		rm WAVECAR CHG* OUTCAR OSZICAR POSCAR	
+
+		cp $workdir/$dir/INCAR-POSCAR				INCAR
+		cp $workdir/$dir/$j							POSCAR
+		cp $workdir/$dir/KPOINTS					KPOINTS
+		cp $workdir/$dir/POTCAR						POTCAR
+		cp $workdir/$dir/SPOSCAR-scf/WAVECAR		./
+
+		$COM >> ../log.$dir
+
+#gene-mag.sh
+		rm WAVECAR CHG*
+
+#====1.2 postprocess====
+		gene-comment-file.sh	$j-scf
+		cat comment-$j-scf	>>  ../comment-$dir
+
+#====1.4 save record-file====
+	done
+	cd ../
+	phonopy -f POSCAR*-scf/vasprun.xml
+	phonopy -p -s band.conf -c POSCAR-origin
+	phonopy-bandplot --gnuplot	>	$dir.dat
